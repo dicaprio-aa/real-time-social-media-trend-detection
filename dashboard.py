@@ -16,23 +16,24 @@ except ImportError:
     KafkaConsumer = None
 
 
-# ---------------- PAGE SETTINGS ----------------
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="Real-Time Social Media Trend Detection",
     page_icon="📈",
     layout="wide"
 )
 
+# ---------------- HEADER ----------------
 st.title("📈 Real-Time Social Media Trend Detection")
 st.caption(
-    "Social media trend monitoring using Apache Kafka "
-    "and Apache Spark Structured Streaming"
+    "An interactive dashboard for monitoring social media "
+    "hashtags and identifying emerging trends."
 )
 
 st_autorefresh(interval=3000, key="dashboard_refresh")
 
 
-# ---------------- SESSION DATA ----------------
+# ---------------- SESSION STATE ----------------
 if "posts" not in st.session_state:
     st.session_state.posts = []
 
@@ -43,30 +44,30 @@ if "demo_index" not in st.session_state:
     st.session_state.demo_index = 0
 
 
-# ---------------- DEMO POSTS ----------------
+# ---------------- SAMPLE POSTS ----------------
 DEMO_POSTS = [
     {
-        "text": "Big Data is changing the world!",
+        "text": "Big Data is transforming the digital world!",
         "hashtags": ["BigData", "AI"]
     },
     {
-        "text": "Machine Learning is growing rapidly.",
+        "text": "Machine Learning is shaping the future.",
         "hashtags": ["MachineLearning", "AI"]
     },
     {
-        "text": "Cloud computing is the future.",
+        "text": "Cloud computing makes applications scalable.",
         "hashtags": ["Cloud", "BigData"]
     },
     {
-        "text": "Python makes data analysis easier.",
+        "text": "Python simplifies data analytics.",
         "hashtags": ["Python", "DataScience"]
     },
     {
-        "text": "Spark processes streaming data fast.",
+        "text": "Apache Spark enables fast data processing.",
         "hashtags": ["Spark", "BigData"]
     },
     {
-        "text": "Technology trends are evolving every day.",
+        "text": "Technology continues to evolve every day.",
         "hashtags": ["Technology", "AI"]
     },
     {
@@ -74,15 +75,22 @@ DEMO_POSTS = [
         "hashtags": ["Analytics", "BigData"]
     },
     {
-        "text": "Data science turns data into insights.",
+        "text": "Data science turns information into insights.",
         "hashtags": ["DataScience", "Python"]
+    },
+    {
+        "text": "Cloud platforms support modern applications.",
+        "hashtags": ["Cloud", "Technology"]
+    },
+    {
+        "text": "Artificial intelligence is changing industries.",
+        "hashtags": ["AI", "MachineLearning"]
     }
 ]
 
 
-# ---------------- KAFKA CONNECTION ----------------
+# ---------------- KAFKA DATA ----------------
 def fetch_posts():
-    """Read available posts from the local Kafka broker."""
     if KafkaConsumer is None:
         return [], False
 
@@ -103,20 +111,18 @@ def fetch_posts():
             api_version_auto_timeout_ms=3000
         )
 
-        received = []
+        received_posts = []
 
         for message in consumer:
-            post = message.value
-            if isinstance(post, dict):
-                received.append(post)
+            if isinstance(message.value, dict):
+                received_posts.append(message.value)
 
-            if len(received) >= 50:
+            if len(received_posts) >= 50:
                 break
 
-        return received, True
+        return received_posts, True
 
     except Exception:
-        # Cloud hosting cannot normally access your laptop's localhost.
         return [], False
 
     finally:
@@ -127,40 +133,34 @@ def fetch_posts():
                 pass
 
 
-# ---------------- LOAD POSTS ----------------
+# ---------------- LOAD DASHBOARD DATA ----------------
 new_posts, kafka_connected = fetch_posts()
 
 if kafka_connected and new_posts:
-    # Real posts received from Kafka
     for post in new_posts:
+        post.setdefault("text", "")
         post.setdefault("timestamp", datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         ))
-        post.setdefault("text", "")
         post.setdefault("hashtags", [])
 
         st.session_state.posts.append(post)
-        st.session_state.counts.update(post.get("hashtags", []))
-
-    st.session_state.data_mode = "Kafka"
+        st.session_state.counts.update(
+            [str(tag).lstrip("#") for tag in post["hashtags"]]
+        )
 
 elif not kafka_connected:
-    # Demo fallback for online hosting or unavailable Kafka
-    demo = DEMO_POSTS[
+    demo_post = DEMO_POSTS[
         st.session_state.demo_index % len(DEMO_POSTS)
     ].copy()
 
-    demo["timestamp"] = datetime.now().strftime(
+    demo_post["timestamp"] = datetime.now().strftime(
         "%Y-%m-%d %H:%M:%S"
     )
-    demo["hashtags"] = [
-        tag.lstrip("#") for tag in demo["hashtags"]
-    ]
 
-    st.session_state.posts.append(demo)
-    st.session_state.counts.update(demo["hashtags"])
+    st.session_state.posts.append(demo_post)
+    st.session_state.counts.update(demo_post["hashtags"])
     st.session_state.demo_index += 1
-    st.session_state.data_mode = "Demo"
 
 st.session_state.posts = st.session_state.posts[-500:]
 
@@ -168,28 +168,29 @@ posts = st.session_state.posts
 counts = st.session_state.counts
 
 
-# ---------------- STATUS ----------------
-if st.session_state.get("data_mode") == "Kafka":
-    st.success("Connected to Kafka — displaying received posts.")
-else:
-    st.info(
-        "Demo mode: sample posts are displayed because Kafka "
-        "is unavailable to this app. Online demo data is simulated."
-    )
-
-
 # ---------------- METRICS ----------------
+st.subheader("📊 Dashboard Overview")
+
 col1, col2, col3 = st.columns(3)
 
-col1.metric("Posts received", len(posts))
-col2.metric("Unique hashtags", len(counts))
+col1.metric(
+    "📝 Posts Received",
+    len(posts)
+)
+
+col2.metric(
+    "🏷️ Unique Hashtags",
+    len(counts)
+)
 
 top_tag = counts.most_common(1)
 
 col3.metric(
-    "Top trending hashtag",
-    f"#{top_tag[0][0]}" if top_tag else "Waiting for data..."
+    "🔥 Top Trending Hashtag",
+    f"#{top_tag[0][0]}" if top_tag else "N/A"
 )
+
+st.divider()
 
 
 # ---------------- TRENDING HASHTAGS ----------------
@@ -201,28 +202,32 @@ if counts:
         columns=["Hashtag", "Count"]
     )
 
+    trend_df["Hashtag"] = "#" + trend_df["Hashtag"].astype(str)
+
     fig = px.bar(
         trend_df,
         x="Hashtag",
         y="Count",
-        title="Top 10 Hashtags",
+        title="Top 10 Trending Hashtags",
+        text="Count",
         color="Count",
-        text="Count"
+        color_continuous_scale="Blues"
     )
 
     fig.update_layout(
         xaxis_title="Hashtag",
-        yaxis_title="Number of Posts",
+        yaxis_title="Post Count",
         showlegend=False
     )
 
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("No hashtags available yet.")
+    st.info("Trend information will appear here.")
 
 
 # ---------------- SPARK RESULTS ----------------
-st.subheader("⚡ Apache Spark — Trend Counts")
+st.divider()
+st.subheader("⚡ Apache Spark — Streaming Analytics")
 
 spark_file = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -252,15 +257,14 @@ try:
                 spark_df.head(10),
                 x="hashtag",
                 y="post_count",
+                title="Hashtag Counts — 30-Second Windows",
                 color="post_count",
-                text="post_count",
-                title="Hashtag Counts in 30-Second Windows"
+                text="post_count"
             )
 
             fig_spark.update_layout(
                 xaxis_title="Hashtag",
-                yaxis_title="Spark Post Count",
-                showlegend=False
+                yaxis_title="Post Count"
             )
 
             st.plotly_chart(
@@ -268,33 +272,39 @@ try:
                 use_container_width=True
             )
         else:
-            st.warning(
-                "Spark JSON file does not contain the expected columns."
-            )
+            st.info("Spark analytics data is not available yet.")
     else:
-        st.info(
-            "Spark output file is empty. Run Spark streaming locally."
-        )
+        st.info("Spark analytics will appear here when results are available.")
 
 except (FileNotFoundError, json.JSONDecodeError):
-    st.info(
-        "Spark output is not available on this server. "
-        "Run Spark streaming on your laptop to generate "
-        "spark_trends.json."
-    )
+    st.info("Spark analytics results are not available yet.")
 
 
 # ---------------- LATEST POSTS ----------------
+st.divider()
 st.subheader("🗞️ Latest Social Media Posts")
 
 if posts:
     for post in reversed(posts[-20:]):
         st.markdown(f"**{post.get('text', '')}**")
+
         hashtags = post.get("hashtags", [])
+
         if hashtags:
-            st.caption(" ".join(f"#{tag.lstrip('#')}" for tag in hashtags))
+            st.caption(
+                " ".join(
+                    f"#{str(tag).lstrip('#')}"
+                    for tag in hashtags
+                )
+            )
 
         st.caption(post.get("timestamp", ""))
         st.divider()
 else:
-    st.info("Waiting for posts...")
+    st.info("Posts will appear here.")
+
+
+# ---------------- FOOTER ----------------
+st.caption(
+    "Built with Python, Streamlit, Apache Kafka and Apache Spark."
+)
